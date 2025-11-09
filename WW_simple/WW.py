@@ -196,8 +196,8 @@ class WittrickWilliams:
 
 
 # -----------------------------------------------------------------------------------------------
-def create_sample_element(length: float = 1.0, EA: float = 1e6,
-                          EI: float = 1e4, mass: float = 100.0) -> Element:
+def create_sample_element(length: float = 1.0, EA: float = 1.0,
+                          EI: float = 1.0, mass: float = 1.0) -> Element:
     """
     创建示例单元
 
@@ -229,8 +229,7 @@ if __name__ == "__main__":
 
     # 创建示例单元
     elements = [
-        create_sample_element(length=2.0, EA=2e6, EI=1e4, mass=150.0),
-        create_sample_element(length=1.5, EA=1.5e6, EI=8e3, mass=120.0)
+        create_sample_element(length=1.0, EA=1.0, EI=1.0, mass=1.0),
     ]
 
     # 测试频率计算
