@@ -1,15 +1,17 @@
 import numpy as np
 import math
 
+#更换结构，需要修改刚度矩阵函数，动力刚度矩阵函数以及j0的取值内容
+
 def get_reduced_stiffness_matrix(E, I, L):
     """
-    计算两端简支欧拉-伯努利梁的简化刚度矩阵。
+    计算两端简支欧拉-伯努利梁的简化刚度矩阵。 （横向位移为0，两端弯矩为0，忽略转动惯量）
     参数:
     E:  弹性模量
     I : 截面惯性矩
     L : 梁的长度
     返回:
-    np.ndarray: 简化后的刚度矩阵 (2x2)
+    np.ndarray: 带入了边界条件后的刚度矩阵 (2x2)
     """
     factor = E * I / L
     K_reduced = factor * np.array([
@@ -28,28 +30,27 @@ def get_reduced_dynamic_stiffness_matrix(E, I, L, rho, A, f):
     rho (float): 材料密度
     A (float): 截面积
     f (float): omega  w
-
     返回:
     np.ndarray: 简化后的动力刚度矩阵 (2x2)
     """
-    # 简化刚度矩阵
+    # 刚度矩阵
     K = get_reduced_stiffness_matrix(E, I, L)
 
-    # 简化质量矩阵
+    # 质量矩阵
     mass_factor = rho * A * L**3 / 420
     M_reduced = mass_factor * np.array([
         [4, -3],
         [-3, 4]
     ])
     # 动力刚度矩阵
-    Kd_reduced = K - f**2 * M_reduced
+    # *** 动力刚度矩阵通式=K - f**2 * M_reduced ，由于欧拉伯努利梁忽略了由于截面自身独立于弯曲的旋转而产生的转动惯量 ***
+    Kd_reduced = K
     return Kd_reduced
 
 def gaussian_elimination(A):
     """
     通过高斯消元将矩阵转换为上三角形式。
     此实现包含部分主元法以提高数值稳定性。
-
     参数:
         A (numpy.ndarray): 输入的方阵。
 
@@ -71,7 +72,7 @@ def gaussian_elimination(A):
         M[[j, max_row]] = M[[max_row, j]]
 
         # 检查奇异性
-        if abs(M[j, j]) < 1e-6:       #避免矩阵奇异或接近奇异（无逆矩阵），计算结果会非常不稳定
+        if abs(M[j, j]) < 1e-10:       #避免矩阵奇异或接近奇异（无逆矩阵），计算结果会非常不稳定
             print(f"警告: 在第 {j} 列的主元接近于零。矩阵可能是奇异的（或接近奇异）。")
             continue  # 如果主元为零，则跳过此列的消元
 
@@ -79,8 +80,8 @@ def gaussian_elimination(A):
         for i in range(j + 1, n):
             factor = M[i, j] / M[j, j]
             M[i, :] = M[i, :] - factor * M[j, :]
-
     return M
+
 
 def count_negative_diagonal_elements(matrix):
     """
@@ -105,12 +106,10 @@ def  calculate_JK(freq):
 
 def calculate_j0(freq) -> int:
     """计算J0值(改进版本)"""
-
     L = 1.0
     EA =1.0
     EI =1.0
     m =1.0
-
     # 轴向振动特征值个数
     nu =freq * L * math.sqrt(m / EA)
     ja = int(nu /math.pi)
@@ -134,11 +133,15 @@ def calculate_j0(freq) -> int:
         else:
             jb = 0
     jb=0
-    #jb：单元固端的横向弯曲振动频率。结构两端简支，弯曲振动位移始终为零，jb不计入
+    #*** jb：单元固端的横向弯曲振动频率。结构两端简支，弯曲振动位移始终为零，jb不计入 ***
     j0 = ja+jb
     return max(0, j0)    # 确保非负
 
-for i in range(1,30,1):
+
+#-----------------------------------------------------------------------------------------------------------------------
+print('输入求解的前n阶频率数')
+t=int(input())
+for i in range(1,t+1,1):
     kfreq = i
     freq_1 = 1
     freq_2 =10
@@ -173,20 +176,12 @@ for i in range(1,30,1):
         else:
             freq_1 = freq
 
-        if (freq_2 - freq_1) <= 0.000001 * (1.0 + freq_2):   #收敛精度
+        if (freq_2 - freq_1) <= 0.001 * (1.0 + freq_2):   #收敛精度
             break
         if iteration > 150:      # Safety break
             break
     final_freq = (freq_1 + freq_2) / 2.0
-    print(f'第{i}阶w：',  f"{final_freq ** 2:.4f}",'j0和jk：',J0,',',Jk)
-
-
-#-------------------------------------------------------------------------------------
-#16阶和17阶频率值相同的原因是二分查找算法在处理J_total（J0 + Jk）函数时遇到了跳跃：J_total在该频率点附近从15跳到17，
-#导致连续的k值（16和17）收敛到同一频率点。这可能是由于数值计算中的多重性或高斯消元过程中的近奇异矩阵处理不当引起的。
-#具体来说，高斯消元函数在主元接近零时跳过消元步骤，导致对角负元素计数（Jk）不准确，特别是在试验频率接近固有频率时矩阵奇异。
-#与理论值不符的原因是代码使用了简化的有限元近似（2x2简化动力刚度矩阵，基于一致质量矩阵），这对于单梁单元和高阶模态是不精确的。
-#理论上，欧拉-伯努利梁的精确固有频率需要使用超越方程（动态刚度法涉及三角函数），而代码的近似方法无法准确捕捉高阶弯曲和轴向模态的耦合。
-#建议改进：采用精确动态刚度矩阵公式，并优化高斯消元以处理奇异情况，例如使用更小的容限或奇异值分解。
-
+    deviation=(final_freq** 2-(i**2)*(math.pi)**2)/((i**2)*(math.pi)**2)*100
+    #print(f'第{i}阶w：',  f"{final_freq ** 2:.4f}",'j0和jk：',J0,',',Jk)')
+    print(f'第{i}阶w：', f"{final_freq ** 2:.4f}","误差值(100%)：",f"{deviation:.4f}")
 
