@@ -78,7 +78,7 @@ class DynamicStiffnessMatrix:
             k12 = k21 = 6 * EI / L ** 2
 
         # 轴向动力刚度
-        if beta_squared > 1e-10:
+        if beta_squared > 1e-12:
             beta = math.sqrt(beta_squared)
             k_axial = EA / L * beta / math.tan(beta)
         else:
@@ -140,7 +140,7 @@ class AdvancedWittrickWilliams:
 
     def calculate_j0(self, freq: float, elements: List[BeamElement]) -> int:
         """计算J0值(改进版本)"""
-        omega =  freq   # 输入的就是圆频率
+        omega = freq    # 输入的就是圆频率
         j0 = 0
 
         for elem in elements:
@@ -169,7 +169,7 @@ class AdvancedWittrickWilliams:
             else:
                 jb = 0
 
-            j0 += ja + jb
+            j0 += ja
 
         return max(0, j0)  # 确保非负
 
@@ -210,19 +210,26 @@ class AdvancedWittrickWilliams:
         return K_global
 
     def calculate_jk(self, freq: float, elements: List[BeamElement],
-                     num_dofs: int) -> int:
+                     num_dofs: int, boundary_conditions: Optional[np.ndarray] = None) -> int:
         """计算JK值(完整版本)"""
-        omega = freq       #输入的就是圆频率
+        omega = freq  # 输入的就是圆频率
 
         try:
             # 组装全局动力刚度矩阵
             K_global = self.assemble_global_dynamic_stiffness(elements, omega, num_dofs)
 
+            # 应用边界条件（罚函数法）
+            if boundary_conditions is not None:
+                penalty_factor = 1e12
+                for i in range(num_dofs):
+                    if boundary_conditions[i] == 1:  # 固定自由度
+                        K_global[i, i] += penalty_factor
+
             # 计算特征值
             eigenvalues = np.linalg.eigvals(K_global)
 
             # 统计负特征值个数
-            jk = np.sum(np.real(eigenvalues) < -1e-10)
+            jk = np.sum(np.real(eigenvalues) < -1e-6)
 
             return int(jk)
 
@@ -231,7 +238,7 @@ class AdvancedWittrickWilliams:
             return 0
 
     def find_frequency_bounds(self, k_order: int, elements: List[BeamElement],
-                              num_dofs: int) -> Tuple[float, float]:
+                              num_dofs: int, boundary_conditions: Optional[np.ndarray] = None) -> Tuple[float, float]:
         """寻找频率搜索边界"""
         freq_lower = 0.0
         freq_upper = 10.0
@@ -240,7 +247,7 @@ class AdvancedWittrickWilliams:
         max_iterations = 50
         for _ in range(max_iterations):
             j0 = self.calculate_j0(freq_lower, elements)
-            jk = self.calculate_jk(freq_lower, elements, num_dofs)
+            jk = self.calculate_jk(freq_lower, elements, num_dofs, boundary_conditions)
             total_j = j0 + jk
 
             if total_j < k_order:
@@ -253,7 +260,7 @@ class AdvancedWittrickWilliams:
         # 寻找上界
         for _ in range(max_iterations):
             j0 = self.calculate_j0(freq_upper, elements)
-            jk = self.calculate_jk(freq_upper, elements, num_dofs)
+            jk = self.calculate_jk(freq_upper, elements, num_dofs, boundary_conditions)
             total_j = j0 + jk
 
             if total_j >= k_order:
@@ -266,16 +273,16 @@ class AdvancedWittrickWilliams:
         return freq_lower, freq_upper
 
     def calculate_k_freq(self, k_order: int, elements: List[BeamElement],
-                         num_dofs: int) -> float:
+                         num_dofs: int, boundary_conditions: Optional[np.ndarray] = None) -> float:
         """计算第k阶频率(改进版本)"""
-        freq_lower, freq_upper = self.find_frequency_bounds(k_order, elements, num_dofs)
+        freq_lower, freq_upper = self.find_frequency_bounds(k_order, elements, num_dofs, boundary_conditions)
 
         max_iterations = 1000
         for iteration in range(max_iterations):
             freq_mid = (freq_lower + freq_upper) / 2.0
 
             j0 = self.calculate_j0(freq_mid, elements)
-            jk = self.calculate_jk(freq_mid, elements, num_dofs)
+            jk = self.calculate_jk(freq_mid, elements, num_dofs, boundary_conditions)
             total_j = j0 + jk
 
             if total_j >= k_order:
@@ -290,17 +297,52 @@ class AdvancedWittrickWilliams:
 
         return (freq_lower + freq_upper) / 2.0
 
-# ------------------------------------------------------------------------------------------------
-elements= [
-        BeamElement(element_id=1, node_i=1, node_j=2, length=1.0,
-                    EA=1.0, EI=1.0, mass_per_length=1,
-                    cos_alpha=1.0, sin_alpha=0.0),
-    ]
-aw = AdvancedWittrickWilliams()
 
-# 在 AdvancedWittrickWilliams.calculate_j0 内部添加：
-# if EI <= 0: jb = 0
-j0 = aw.calculate_j0(freq=0.125, elements=elements)
-print("j0 =", j0)  # 结果：0
+if __name__ == "__main__":
+    # 示例：两端简支的欧拉-伯努利梁
+    L = 1.0  # 长度
+    EI = 1.0  # 弯曲刚度
+    EA = 1.0  # 轴向刚度 (大值以忽略轴向效应)
+    m = 1.0  # 单位长度质量
+
+    # 创建梁单元
+    beam = BeamElement(
+        element_id=1,
+        node_i=1,
+        node_j=2,
+        length=L,
+        EA=EA,
+        EI=EI,
+        mass_per_length=m,
+        cos_alpha=1.0,  # 水平梁
+        sin_alpha=0.0
+    )
+
+    elements = [beam]
+    num_dofs = 6  # 两个节点，每个3自由度
+
+    # 边界条件数组：1表示固定
+    import numpy as np
+
+    boundary_conditions = np.zeros(num_dofs)
+    # 两端简支：固定u和v，theta自由
+    boundary_conditions[0] = 1  # u1
+    boundary_conditions[1] = 1  # v1
+    boundary_conditions[3] = 1  # u2
+    boundary_conditions[4] = 1  # v2
+
+    # 创建算法实例
+    ww = AdvancedWittrickWilliams(tolerance=1e-12)
+
+
+    for i in range(1,20,1):
+        freq1 = ww.calculate_k_freq(
+            k_order=i,
+            elements=elements,
+            num_dofs=num_dofs,
+            boundary_conditions=boundary_conditions
+        )
+        print(f"第{i}自然频率: {freq1 ** 2:.6f} rad/s")
+
 
 

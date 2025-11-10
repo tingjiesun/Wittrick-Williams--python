@@ -33,7 +33,7 @@ def get_reduced_dynamic_stiffness_matrix(E, I, L, rho, A, f):
     np.ndarray: 简化后的动力刚度矩阵 (2x2)
     """
     # 简化刚度矩阵
-    K_reduced = get_reduced_stiffness_matrix(E, I, L)
+    K = get_reduced_stiffness_matrix(E, I, L)
 
     # 简化质量矩阵
     mass_factor = rho * A * L**3 / 420
@@ -42,7 +42,7 @@ def get_reduced_dynamic_stiffness_matrix(E, I, L, rho, A, f):
         [-3, 4]
     ])
     # 动力刚度矩阵
-    Kd_reduced = K_reduced - f**2 * M_reduced
+    Kd_reduced = K - f**2 * M_reduced
     return Kd_reduced
 
 def gaussian_elimination(A):
@@ -71,7 +71,7 @@ def gaussian_elimination(A):
         M[[j, max_row]] = M[[max_row, j]]
 
         # 检查奇异性
-        if abs(M[j, j]) < 1e-6:     #避免矩阵奇异或接近奇异（无逆矩阵），计算结果会非常不稳定
+        if abs(M[j, j]) < 1e-6:       #避免矩阵奇异或接近奇异（无逆矩阵），计算结果会非常不稳定
             print(f"警告: 在第 {j} 列的主元接近于零。矩阵可能是奇异的（或接近奇异）。")
             continue  # 如果主元为零，则跳过此列的消元
 
@@ -133,8 +133,9 @@ def calculate_j0(freq) -> int:
             jb = n_lambda - (1 - (-1) ** n_lambda * sg) /2
         else:
             jb = 0
-    # jb：单元固端的横向弯曲振动频率。结构两端简支，弯曲振动位移始终为零，jb不计入
-    j0 = ja
+    jb=0
+    #jb：单元固端的横向弯曲振动频率。结构两端简支，弯曲振动位移始终为零，jb不计入
+    j0 = ja+jb
     return max(0, j0)    # 确保非负
 
 for i in range(1,30,1):
@@ -172,12 +173,13 @@ for i in range(1,30,1):
         else:
             freq_1 = freq
 
-        if (freq_2 - freq_1) <= 0.00001 * (1.0 + freq_2):   #收敛精度
+        if (freq_2 - freq_1) <= 0.000001 * (1.0 + freq_2):   #收敛精度
             break
         if iteration > 150:      # Safety break
             break
     final_freq = (freq_1 + freq_2) / 2.0
     print(f'第{i}阶w：',  f"{final_freq ** 2:.4f}",'j0和jk：',J0,',',Jk)
+
 
 #-------------------------------------------------------------------------------------
 #16阶和17阶频率值相同的原因是二分查找算法在处理J_total（J0 + Jk）函数时遇到了跳跃：J_total在该频率点附近从15跳到17，
@@ -186,5 +188,5 @@ for i in range(1,30,1):
 #与理论值不符的原因是代码使用了简化的有限元近似（2x2简化动力刚度矩阵，基于一致质量矩阵），这对于单梁单元和高阶模态是不精确的。
 #理论上，欧拉-伯努利梁的精确固有频率需要使用超越方程（动态刚度法涉及三角函数），而代码的近似方法无法准确捕捉高阶弯曲和轴向模态的耦合。
 #建议改进：采用精确动态刚度矩阵公式，并优化高斯消元以处理奇异情况，例如使用更小的容限或奇异值分解。
-# 同时，验证初始频率范围和收敛准则以避免死循环或精度丢失。
+
 
