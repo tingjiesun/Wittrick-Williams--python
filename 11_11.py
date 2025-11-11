@@ -1,7 +1,7 @@
 import numpy as np
 import math
 
-#更换结构，需要修改刚度矩阵函数，动力刚度矩阵函数以及j0的取值内容
+#更换结构，需要修改刚度矩阵函数，动力刚度矩阵函数以及j0的取值内容,其余不变
 
 def get_reduced_stiffness_matrix(E, I, L):
     """
