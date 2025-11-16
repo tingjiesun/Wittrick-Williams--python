@@ -3,12 +3,10 @@
 # 1.欧拉伯努利梁，不考虑轴向位移，所以j0=Jb（Ja省略）
 # 2.两端简支，故位移分量仅有转角位移
 
-
 import math
 from dataclasses import dataclass
 from typing import List
 import numpy as np
-
 
 @dataclass
 class Element:

@@ -1,167 +1,235 @@
-import numpy as np
+#书P197————轴向振动悬臂梁的频率计算
+#注意：仅轴向振动，J0=Ja（Jb省略）
+
 import math
+from dataclasses import dataclass
+from typing import List
+import numpy as np
 
-#书p197例题修改  结构：轴向振动的悬臂杆件，一个单元，E=1,I=1,L=3，A=1,m=3(均匀分布)；  理论频率值=(2n-1)*pi/6
 
-def get_reduced_dynamic_stiffness_matrix(E, I, L, rho, A, f):
+@dataclass
+class Element:
     """
-    计算给定频率下的动力刚度矩阵。
+    梁单元数据结构（均匀直梁，欧拉-伯努利假设）。
+
+    字段:
+    - Len: 单元长度 L
+    - EA: 轴向刚度 EA
+    - EI: 弯曲刚度 EI
+    - mass: 线密度 m（单位长度质量）
+    - CosA, SinA: 单元方向余弦与正弦（局部→全局坐标）
+    - GlbDOF: 6 个全局自由度编号（1-based；约束用 0）
+    """
+    Len: float
+    EA: float
+    EI: float
+    mass: float
+    CosA: float
+    SinA: float
+    GlbDOF: List[int]
+
+
+def _trans_matrix(cos_a: float, sin_a: float) -> np.ndarray:
+    """
+    构造 6×6 的坐标变换矩阵 ET（局部 → 全局）。
+
+    每节点 3 自由度 [u, v, θ]，位移部分按平面旋转 R；
+    角度 θ 保持不变（小变形假设）。
+    返回的矩阵为两块 3×3 的 R 的块对角结构。
+    """
+    R = np.array([[cos_a, sin_a, 0.0], [-sin_a, cos_a, 0.0], [0.0, 0.0, 1.0]])
+    ET = np.zeros((6, 6))
+    ET[0:3, 0:3] = R
+    ET[3:6, 3:6] = R
+    return ET
+
+
+def _ed_stiffness_matrix(elem: Element, freq: float) -> np.ndarray:
+    """
+    计算单元在给定圆频率下的动力刚度矩阵 EK（6×6）。
+
+    模型:
+    - 轴向 + 弯曲的频率相关刚度，欧拉-伯努利梁假设，线性小振幅。
+
+    自由度次序:
+    - [ui, vi, θi, uj, vj, θj]
+
     参数:
-    E (float): 弹性模量
-    I (float): 截面惯性矩
-    L (float): 梁的长度
-    rho (float): 材料密度
-    A (float): 截面积
-    f (float): omega  w
-    返回:
-    np.ndarray: 简化后的动力刚度矩阵 (2x2)
-    """
-    c3=math.cos(3*f)
-    t=f/math.sin(3*f)
-    # 动力刚度矩阵
-    Kd_reduced = np.array([
-        [ t*c3,-1*t],
-        [-1*t ,t*c3]
-    ])
-    return Kd_reduced
+    - elem: 单元参数（EA, EI, m, L, 方向余弦, GlbDOF）
+    - freq: 圆频率 ω（rad/s）
 
-def gaussian_elimination(A):
+    返回:
+    - 6×6 的局部坐标 EK
     """
-    通过高斯消元将矩阵转换为上三角形式。
-    此实现包含部分主元法以提高数值稳定性。
+    EAL = elem.EA / elem.Len
+    EIL = elem.EI / elem.Len
+    EIL2 = elem.EI / (elem.Len ** 2)
+    EIL3 = elem.EI / (elem.Len ** 3)
+    nu = freq * elem.Len * math.sqrt(elem.mass / elem.EA)  # 轴向无量纲频率
+    lam = elem.Len * ((freq ** 2 * elem.mass / elem.EI) ** 0.25)  # 弯曲无量纲频率
+    sl = math.sin(lam)
+    cl = math.cos(lam)
+    inve = math.exp(-lam)  # e^{-λ}
+    esh = (1.0 - inve ** 2) / 2.0  # 与 sinh(λ) 相关的组合项
+    ech = (1.0 + inve ** 2) / 2.0  # 与 cosh(λ) 相关的组合项
+    phi = inve - ech * cl  # 组合项，接近 0 时数值可能不稳定
+    B1 = nu / math.tan(nu)
+    B2 = nu / math.sin(nu)
+    T = (lam ** 3) * (sl * ech + cl * esh) / phi
+    R = (lam ** 3) * (esh + inve * sl) / phi
+    Q = (lam ** 2) * (esh * sl) / phi
+    H = (lam ** 2) * (ech - inve * cl) / phi
+    S = lam * (sl * ech - cl * esh) / phi
+    C = lam * (esh - inve * sl) / phi
+    EK = np.zeros((6, 6))
+    EK[0] = np.array([B1 * EAL, 0.0, 0.0, -B2 * EAL, 0.0, 0.0])
+    EK[1] = np.array([0.0, T * EIL3, Q * EIL2, 0.0, -R * EIL3, H * EIL2])
+    EK[2] = np.array([0.0, Q * EIL2, S * EIL, 0.0, -H * EIL2, C * EIL])
+    EK[3] = np.array([-B2 * EAL, 0.0, 0.0, B1 * EAL, 0.0, 0.0])
+    EK[4] = np.array([0.0, -R * EIL3, -H * EIL2, 0.0, T * EIL3, -Q * EIL2])
+    EK[5] = np.array([0.0, H * EIL2, C * EIL, 0.0, -Q * EIL2, S * EIL])
+    return EK
+
+
+def _gd_stiffness_matrix(elements: List[Element], freq: float, n_glb_dof: int) -> np.ndarray:
+    """
+    组装给定频率下的全局动力刚度矩阵 K（n_glb_dof × n_glb_dof）。
+
+    步骤:
+    - 逐单元计算局部 EK
+    - 用 ET 做坐标变换得到 EKg
+    - 按 GlbDOF 将 EKg 汇入全局矩阵 K
+
+    约定:
+    - GlbDOF 使用 1-based；值为 0 的自由度表示该自由度被约束
+
+    注意:
+    - 当前实现同时填充 K[i,j] 与 K[j,i] 以保持矩阵对称；
+      在 i、j 双索引遍历下，非对角项会被累加两次。若需避免重复，
+      可仅填充一次或限制遍历 i ≤ j 并最终对称化。
+    """
+    K = np.zeros((n_glb_dof, n_glb_dof))
+    for elem in elements:
+        EK = _ed_stiffness_matrix(elem, freq)
+        ET = _trans_matrix(elem.CosA, elem.SinA)
+        EKg = ET.T @ EK @ ET
+        ev = elem.GlbDOF
+        for j in range(6):
+            JG = ev[j]
+            if JG <= 0:
+                continue
+            jidx = JG - 1
+            for i in range(6):
+                IG = ev[i]
+                if IG <= 0:
+                    continue
+                iidx = IG - 1
+                val = EKg[i, j]
+                K[iidx, jidx] += val
+                K[jidx, iidx] += val
+    return K
+
+
+def calculate_j0(freq: float, elements: List[Element]) -> int:
+    """
+    计算 J0: 频率下界的特征值个数（Wittrick–Williams 定理）。
+
+    原理:
+    - 对轴向: ja = ⌊ν/π⌋，其中 ν = ω L √(m/EA)
+    - 对弯曲: jb 由 λ = L(ω² m/EI)^{1/4} 的区间计数与符号项组合得到
+      采用 inve = e^{-λ} 与 cos(λ) 的判定构造 sg ∈ {+1, −1}
+
+    返回:
+    - 各单元 ja+jb 的和，即结构在该频率的下界特征值计数
+    """
+    pi = math.acos(-1.0)
+    j0 = 0
+    for elem in elements:
+        nu = freq * elem.Len * math.sqrt(elem.mass / elem.EA)
+        lam = elem.Len * ((freq ** 2 * elem.mass / elem.EI) ** 0.25)
+        ja = int(nu / pi)
+        inve = math.exp(-lam)
+        sg = 1 if (inve - math.cos(lam) * (1.0 + inve ** 2) / 2.0) >= 0.0 else -1
+        n_int = int(lam / pi)
+        parity = (-1) ** n_int
+        jb = n_int - (1 - parity * sg) // 2
+        j0 += ja
+    return j0
+
+
+def calculate_jk(freq: float, elements: List[Element], n_glb_dof: int) -> int:
+    """
+    计算 JK: 全局动力刚度矩阵 K 的负特征值个数
+
+    """
+    K = _gd_stiffness_matrix(elements, freq, n_glb_dof)
+    K = (K + K.T) * 0.5
+    w = np.linalg.eigvalsh(K)
+    return int(np.sum(w < -1e-12))
+
+
+def calculate_kfreq(kfreq: int, toler: float, elements: List[Element], n_glb_dof: int) -> float:
+    """
+    用二分法求结构的第 k 阶圆频率（rad/s）
     参数:
-        A (numpy.ndarray): 输入的方阵。
+    - kfreq: 目标阶次 k
+    - toler: 收敛阈值
+    - elements, n_glb_dof: 结构模型
 
     返回:
-        numpy.ndarray: 上三角矩阵。
+    - 第 k 阶圆频率（rad/s）
     """
-    # 创建一个副本以避免修改原始矩阵
-    M = A.copy().astype(float)
-    n = M.shape[0]
-
-    for j in range(n):
-        # 部分主元法：找到主元最大的行
-        max_row = j
-        for i in range(j + 1, n):
-            if abs(M[i, j]) > abs(M[max_row, j]):
-                max_row = i
-
-        # 将当前行与主元最大的行交换
-        M[[j, max_row]] = M[[max_row, j]]
-
-        # 检查奇异性
-        if abs(M[j, j]) < 1e-6:       #避免矩阵奇异或接近奇异（无逆矩阵），计算结果会非常不稳定
-            print('可能奇异')
-            continue  # 如果主元为零，则跳过此列的消元
-
-        # 对当前列进行消元
-        for i in range(j + 1, n):
-            factor = M[i, j] / M[j, j]
-            M[i, :] = M[i, :] - factor * M[j, :]
-    return M
-
-def count_negative_diagonal_elements(matrix):
-    """
-    计算矩阵对角线上负元素的个数。
-    参数:
-    matrix (np.ndarray): 输入的方阵
-    返回:
-    int: 对角线上负元素的数量
-    """
-    count = 0
-    for i in range(len(matrix)):
-        if matrix[i][i] < 0:
-            count += 1
-    return count
-
-
-def  calculate_JK(freq):
-    M=get_reduced_dynamic_stiffness_matrix(1,1, 3, 1, 1, freq)
-    M_1=gaussian_elimination(M)
-    num=count_negative_diagonal_elements(M_1)
-    return num
-
-
-def calculate_j0(freq) -> int:
-    """计算J0值(改进版本)"""
-    L = 3.0
-    EA =1.0
-    EI =1.0
-    m =3.0
-    # 轴向振动特征值个数
-    nu =freq * L
-    ja = int(nu /math.pi)
-
-    # 弯曲振动特征值个数（当 EI<=0 时表示无弯曲刚度，直接不计入）
-    if EI <= 0:
-        jb = 0
-    else:
-        lambda_val = L * (freq ** 2 * m / EI) ** 0.25
-
-        if lambda_val > 1e-6:
-            inv_e = math.exp(-lambda_val)
-            cos_lambda = math.cos(lambda_val)
-
-            # 改进的符号判断
-            discriminant = inv_e - cos_lambda * (1.0 + inv_e ** 2) / 2.0
-            sg = 1 if discriminant > 0 else -1
-
-            n_lambda = int(lambda_val / math.pi)
-            jb = n_lambda - (1 - (-1) ** n_lambda * sg) /2
+    freq1 = 1.0
+    freq2 = 10.0
+    while True:
+        j0 = calculate_j0(freq1, elements)
+        jk = calculate_jk(freq1, elements, n_glb_dof)
+        if j0 + jk < kfreq:
+            break
+        freq1 *= 0.5
+    while True:
+        j0 = calculate_j0(freq2, elements)
+        jk = calculate_jk(freq2, elements, n_glb_dof)
+        if j0 + jk > kfreq:
+            break
+        freq2 *= 2.0
+    while True:
+        freq = 0.5 * (freq1 + freq2)
+        j0 = calculate_j0(freq, elements)
+        jk = calculate_jk(freq, elements, n_glb_dof)
+        if j0 + jk >= kfreq:
+            freq2 = freq
         else:
-            jb = 0
-    jb=0
-    #***  jb：结构仅进行轴向振动，jb不计入  ***
-    j0 = ja+jb
-    return max(0, j0)    # 确保非负
+            freq1 = freq
+        if (freq2 - freq1) <= toler * (1.0 + freq2):
+            break
+    return 0.5 * (freq1 + freq2)
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-print('输入求解的前n阶频率数')
-t=int(input())
-for i in range(1,t+1,1):
-    kfreq = i
-    freq_1 = 1
-    freq_2 =10
-    while True:
-        J0_1 = calculate_j0(freq_1)
-        Jk_1 = calculate_JK(freq_1)
-        J_total = J0_1 + Jk_1
-        if J_total < kfreq:
-            break
-        freq_1 = freq_1 / 1.5
-        if freq_1 < 1e-12:     # 防止频率过小导致死循环
-            break
-    while True:
-        J0_2 = calculate_j0(freq_2)
-        Jk_2 = calculate_JK(freq_2)
-        J_total = J0_2 + Jk_2
-        if J_total >= kfreq:
-            break
-        freq_2 = freq_2 * 1.5
-        if freq_2 > 1e12:      # 防止频率过大导致死循环
-            break
-    iteration = 0
-    while True:
-        iteration += 1
-        freq = (freq_1 + freq_2) / 2.0
-        J0 = calculate_j0(freq)
-        Jk = calculate_JK(freq)
-        J_total = J0 + Jk
+def calculate_freq(n_freq: int, freq_start: int, toler: float, elements: List[Element], n_glb_dof: int) -> List[float]:
+    """
+    计算从第 freq_start 阶开始的共 n_freq 个圆频率（rad/s）。
 
-        if J_total >= kfreq:
-            freq_2 = freq
-        else:
-            freq_1 = freq
+    返回:
+    - 长度为 n_freq 的圆频率列表
+    """
+    res: List[float] = []
+    for k in range(freq_start, freq_start + n_freq):
+        res.append(calculate_kfreq(k, toler, elements, n_glb_dof))
+    return res
 
-        if (freq_2 - freq_1) <= 0.00001 * (1.0 + freq_2):    #收敛精度
-            break
-        if iteration > 200:       # Safety break
-            break
-    final_freq = (freq_1 + freq_2) / 2.0
-    t=(2*i-1)*(math.pi)/6
-    devi=(final_freq-t)/t*100
-    print(f'第{i}阶w：', f"{final_freq :.4f}",f"{t:.4f}",f"{devi:.4f}",calculate_j0(final_freq),' ',calculate_JK(final_freq))
-
-
+#仅进行轴向振动，所以求j0那里需要去掉Jb，仅保留Ja
+if __name__ == "__main__":
+    E = 1.0
+    I = 1.0
+    rho = 1.0
+    A = 1.0
+    L = 1.0
+    #轴向振动悬臂杆件仅有轴向位移
+    elem1 = Element(Len=L*1, EA=E * A, EI=E * I, mass=rho * A, CosA=1.0, SinA=0.0, GlbDOF=[0, 0, 0, 1, 0, 0])
+    elem2 = Element(Len=L*2, EA=E * A, EI=E * I, mass=rho * A, CosA=1.0, SinA=0.0, GlbDOF=[1, 0, 0, 2, 0, 0])
+    n_glb_dof = 2
+    freqs = calculate_freq(20, 1, 1e-4, [elem1,elem2], n_glb_dof)
+    for i, w in enumerate(freqs, 1):
+        print(f"{i}: {w:.4f}",f"理论值: {(2*i-1)/6*math.pi:.4f}")
 
