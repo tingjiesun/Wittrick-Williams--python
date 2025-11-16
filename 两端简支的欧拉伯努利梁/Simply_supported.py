@@ -1,7 +1,7 @@
 #两端简支欧拉伯努利梁频率计算
 #注意：
 # 1.欧拉伯努利梁，不考虑轴向位移，所以求j0那里仅保留Jb
-# 2.位移分量仅有转角位移
+# 2.两端简支，故位移分量仅有转角位移
 
 
 import math
@@ -49,17 +49,11 @@ def _trans_matrix(cos_a: float, sin_a: float) -> np.ndarray:
 def _ed_stiffness_matrix(elem: Element, freq: float) -> np.ndarray:
     """
     计算单元在给定圆频率下的动力刚度矩阵 EK（6×6）。
-
-    模型:
-    - 轴向 + 弯曲的频率相关刚度，欧拉-伯努利梁假设，线性小振幅。
-
     自由度次序:
     - [ui, vi, θi, uj, vj, θj]
-
     参数:
     - elem: 单元参数（EA, EI, m, L, 方向余弦, GlbDOF）
     - freq: 圆频率 ω（rad/s）
-
     返回:
     - 6×6 的局部坐标 Ek
     """
@@ -96,19 +90,12 @@ def _ed_stiffness_matrix(elem: Element, freq: float) -> np.ndarray:
 def _gd_stiffness_matrix(elements: List[Element], freq: float, n_glb_dof: int) -> np.ndarray:
     """
     组装给定频率下的全局动力刚度矩阵 K（n_glb_dof × n_glb_dof）。
-
-    步骤:
-    - 逐单元计算局部 EK
-    - 用 ET 做坐标变换得到 EKg
-    - 按 GlbDOF 将 EKg 汇入全局矩阵 K
-
-    约定:
-    - GlbDOF 使用 1-based；值为 0 的自由度表示该自由度被约束
-
     注意:
     - 当前实现同时填充 K[i,j] 与 K[j,i] 以保持矩阵对称；
       在 i、j 双索引遍历下，非对角项会被累加两次。若需避免重复，
       可仅填充一次或限制遍历 i ≤ j 并最终对称化。
+     返回：
+     全局刚度矩阵
     """
     K = np.zeros((n_glb_dof, n_glb_dof))
     for elem in elements:
@@ -133,15 +120,13 @@ def _gd_stiffness_matrix(elements: List[Element], freq: float, n_glb_dof: int) -
 
 def calculate_j0(freq: float, elements: List[Element]) -> int:
     """
-    计算 J0: 频率下界的特征值个数（Wittrick–Williams 定理）。
-
+    计算 J0
     原理:
     - 对轴向: ja = ⌊ν/π⌋，其中 ν = ω L √(m/EA)
     - 对弯曲: jb 由 λ = L(ω² m/EI)^{1/4} 的区间计数与符号项组合得到
       采用 inve = e^{-λ} 与 cos(λ) 的判定构造 sg ∈ {+1, −1}
-
     返回:
-    - 各单元 ja+jb 的和，即结构在该频率的下界特征值计数
+    - 各单元 ja+jb 的和，即结构在该频率的下界特征值计数  （根据结果特性，选择是否修改J0内容）
     """
     pi = math.acos(-1.0)
     j0 = 0
@@ -161,13 +146,11 @@ def calculate_j0(freq: float, elements: List[Element]) -> int:
 def calculate_jk(freq: float, elements: List[Element], n_glb_dof: int) -> int:
     """
     计算 JK: 全局动力刚度矩阵 K 的负特征值个数
-
     """
     K = _gd_stiffness_matrix(elements, freq, n_glb_dof)
     K = (K + K.T) * 0.5
     w = np.linalg.eigvalsh(K)
     return int(np.sum(w < -1e-12))
-
 
 def calculate_kfreq(kfreq: int, toler: float, elements: List[Element], n_glb_dof: int) -> float:
     """
