@@ -209,7 +209,7 @@ if __name__ == "__main__":
     #两端简支，没有竖向，横向位移分量
     elem1 = Element(Len=L, EA=E * A, EI=E * I, mass=rho * A, CosA=1.0, SinA=0.0, GlbDOF=[0, 0, 1, 0, 0, 2])
     n_glb_dof = 2
-    freqs = calculate_freq(20, 1, 1e-4, [elem1], n_glb_dof)
+    freqs = calculate_freq(20, 1, 1e-12, [elem1], n_glb_dof)
     for i, w in enumerate(freqs, 1):
         print(f"第{i}阶: {w:.4f}",f"理论值: {(i**2*(math.pi)**2):.4f}")
 

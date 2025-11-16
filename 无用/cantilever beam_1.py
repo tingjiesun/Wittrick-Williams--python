@@ -224,12 +224,11 @@ if __name__ == "__main__":
     I = 1.0
     rho = 1.0
     A = 1.0
-    L = 1.0
+    L = 3.0
     #轴向振动悬臂杆件仅有轴向位移
     elem1 = Element(Len=L*1, EA=E * A, EI=E * I, mass=rho * A, CosA=1.0, SinA=0.0, GlbDOF=[0, 0, 0, 1, 0, 0])
-    elem2 = Element(Len=L*2, EA=E * A, EI=E * I, mass=rho * A, CosA=1.0, SinA=0.0, GlbDOF=[1, 0, 0, 2, 0, 0])
-    n_glb_dof = 2
-    freqs = calculate_freq(20, 1, 1e-4, [elem1,elem2], n_glb_dof)
+    n_glb_dof = 1
+    freqs = calculate_freq(20, 1, 1e-4, [elem1], n_glb_dof)
     for i, w in enumerate(freqs, 1):
         print(f"{i}: {w:.4f}",f"理论值: {(2*i-1)/6*math.pi:.4f}")
 
