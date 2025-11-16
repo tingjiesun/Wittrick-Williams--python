@@ -1,6 +1,6 @@
 #两端简支欧拉伯努利梁频率计算
 #注意：
-# 1.欧拉伯努利梁，不考虑轴向位移，所以求j0那里仅保留Jb
+# 1.欧拉伯努利梁，不考虑轴向位移，所以j0=Jb（Ja省略）
 # 2.两端简支，故位移分量仅有转角位移
 
 
@@ -142,7 +142,6 @@ def calculate_j0(freq: float, elements: List[Element]) -> int:
         j0 += jb
     return j0
 
-
 def calculate_jk(freq: float, elements: List[Element], n_glb_dof: int) -> int:
     """
     计算 JK: 全局动力刚度矩阵 K 的负特征值个数
@@ -188,7 +187,6 @@ def calculate_kfreq(kfreq: int, toler: float, elements: List[Element], n_glb_dof
         if (freq2 - freq1) <= toler * (1.0 + freq2):
             break
     return 0.5 * (freq1 + freq2)
-
 
 def calculate_freq(n_freq: int, freq_start: int, toler: float, elements: List[Element], n_glb_dof: int) -> List[float]:
     """
